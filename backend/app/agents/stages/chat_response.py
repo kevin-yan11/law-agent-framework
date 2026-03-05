@@ -10,13 +10,11 @@ from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
 
+from app.agents.providers import ensure_builtin_tool_providers_registered
 from app.agents.conversational_state import ConversationalState
 from app.agents.utils import get_internal_llm_config, get_chat_agent_config
-from app.tools.lookup_law import lookup_law
-from app.tools.find_lawyer import find_lawyer
-from app.tools.analyze_document import analyze_document
-from app.tools.search_case_law import search_case_law
-from app.tools.get_action_template import get_action_template
+from legal_agent_framework import resolve_tool_provider
+from legal_agent_framework.config import get_configured_tool_provider_name
 from app.config import logger
 
 
@@ -335,8 +333,17 @@ def _create_chat_agent(user_state: str, has_document: bool, document_url: str = 
     """
     llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
 
-    # Tools available for chat
-    tools = [lookup_law, find_lawyer, analyze_document, search_case_law, get_action_template]
+    # Resolve tools from provider registry (app can override by registering another provider).
+    ensure_builtin_tool_providers_registered()
+    tool_provider = resolve_tool_provider(get_configured_tool_provider_name())
+    tools = tool_provider.get_tools(
+        {
+            "ui_mode": ui_mode,
+            "legal_topic": legal_topic,
+            "user_state": user_state,
+            "has_document": has_document,
+        }
+    )
 
     # Select base system prompt based on UI mode
     if ui_mode == "analysis":

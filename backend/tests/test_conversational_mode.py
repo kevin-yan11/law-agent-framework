@@ -9,6 +9,7 @@ from app.agents.conversational_graph import (
     route_after_initialize,
 )
 from app.agents.utils import extract_user_state, extract_legal_topic
+from app.adapters import parse_copilotkit_context
 from app.agents.stages.safety_check_lite import (
     _check_crisis_keywords,
     _might_be_risky,
@@ -259,6 +260,34 @@ class TestLegalTopicExtraction:
             }
         }
         assert extract_legal_topic(state) == "parking_ticket"
+
+
+class TestCopilotKitAdapter:
+    """Test adapter-level context parsing."""
+
+    def test_parse_context_with_all_fields(self):
+        state = {
+            "copilotkit": {
+                "context": [
+                    {"description": "User's state/territory", "value": "User is in NSW"},
+                    {"description": "Uploaded document URL", "value": "URL: https://example.com/doc.pdf"},
+                    {"description": "The UI mode the user has selected", "value": "ANALYSIS MODE"},
+                    {"description": "The legal topic the user has selected", "value": "Parking ticket help"},
+                ]
+            }
+        }
+        context = parse_copilotkit_context(state)
+        assert context.user_state == "NSW"
+        assert context.uploaded_document_url == "https://example.com/doc.pdf"
+        assert context.ui_mode == "analysis"
+        assert context.legal_topic == "parking_ticket"
+
+    def test_parse_context_defaults(self):
+        context = parse_copilotkit_context({})
+        assert context.user_state is None
+        assert context.uploaded_document_url is None
+        assert context.ui_mode == "chat"
+        assert context.legal_topic == "general"
 
     def test_extract_insurance_claim_topic(self):
         state = {

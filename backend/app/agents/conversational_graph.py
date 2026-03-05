@@ -25,18 +25,10 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.agents.conversational_state import ConversationalState, ConversationalOutput
-from app.agents.utils import extract_user_state, extract_document_url, extract_ui_mode, extract_legal_topic
-from app.agents.stages.safety_check_lite import (
-    safety_check_lite_node,
-    route_after_safety_lite,
-    format_escalation_response_lite,
-)
-from app.agents.stages.chat_response import chat_response_node
-from app.agents.stages.brief_flow import (
-    brief_check_info_node,
-    brief_ask_questions_node,
-    brief_generate_node,
-)
+from app.agents.providers import ensure_builtin_stage_providers_registered
+from app.context import resolve_request_context
+from legal_agent_framework import build_default_runtime, resolve_stage_provider
+from legal_agent_framework.config import get_configured_stage_provider_name
 from app.config import logger
 
 
@@ -45,6 +37,9 @@ BRIEF_TRIGGER = "[GENERATE_BRIEF]"
 
 # Early generation trigger (user wants to generate with available info)
 GENERATE_NOW_TRIGGER = "[GENERATE_NOW]"
+
+# Phase 1 framework runtime (observe/warn mode, no behavior changes)
+_framework_runtime = build_default_runtime()
 
 
 # ============================================
@@ -69,11 +64,12 @@ async def initialize_node(state: ConversationalState) -> dict:
 
     session_id = state.get("session_id") or str(uuid.uuid4())
 
-    # Extract CopilotKit context
-    user_state = extract_user_state(state)
-    uploaded_document_url = extract_document_url(state)
-    ui_mode = extract_ui_mode(state)  # "chat" or "analysis"
-    legal_topic = extract_legal_topic(state)  # "general", "parking_ticket", etc.
+    # Extract normalized request context via transport-agnostic resolver
+    request_context = resolve_request_context(state)
+    user_state = request_context.user_state
+    uploaded_document_url = request_context.uploaded_document_url
+    ui_mode = request_context.ui_mode  # "chat" or "analysis"
+    legal_topic = request_context.legal_topic  # "general", "parking_ticket", etc.
 
     # Check if this is the first message (new session)
     is_first_message = len(messages) <= 1
@@ -183,19 +179,45 @@ def build_conversational_graph():
     - Brief check info (extract facts, find gaps)
     - Brief ask questions (if info missing) or Brief generate (if ready)
     """
+    ensure_builtin_stage_providers_registered()
+    stage_provider = resolve_stage_provider(get_configured_stage_provider_name())
+    stage_nodes = stage_provider.get_stage_nodes()
+    route_handlers = stage_provider.get_route_handlers()
+
     # Output schema limits what gets streamed to UI
     workflow = StateGraph(ConversationalState, output=ConversationalOutput)
 
     # Add chat/analysis mode nodes
-    workflow.add_node("initialize", initialize_node)
-    workflow.add_node("safety_check", safety_check_lite_node)
-    workflow.add_node("escalation_response", format_escalation_response_lite)
-    workflow.add_node("chat_response", chat_response_node)
+    workflow.add_node(
+        "initialize",
+        _framework_runtime.wrap_node("initialize", initialize_node),
+    )
+    workflow.add_node(
+        "safety_check",
+        _framework_runtime.wrap_node("safety_check", stage_nodes["safety_check"]),
+    )
+    workflow.add_node(
+        "escalation_response",
+        _framework_runtime.wrap_node("escalation_response", stage_nodes["escalation_response"]),
+    )
+    workflow.add_node(
+        "chat_response",
+        _framework_runtime.wrap_node("chat_response", stage_nodes["chat_response"]),
+    )
 
     # Add brief mode nodes
-    workflow.add_node("brief_check_info", brief_check_info_node)
-    workflow.add_node("brief_ask_questions", brief_ask_questions_node)
-    workflow.add_node("brief_generate", brief_generate_node)
+    workflow.add_node(
+        "brief_check_info",
+        _framework_runtime.wrap_node("brief_check_info", stage_nodes["brief_check_info"]),
+    )
+    workflow.add_node(
+        "brief_ask_questions",
+        _framework_runtime.wrap_node("brief_ask_questions", stage_nodes["brief_ask_questions"]),
+    )
+    workflow.add_node(
+        "brief_generate",
+        _framework_runtime.wrap_node("brief_generate", stage_nodes["brief_generate"]),
+    )
 
     # Entry point
     workflow.set_entry_point("initialize")
@@ -214,7 +236,7 @@ def build_conversational_graph():
     # After safety check, route based on result
     workflow.add_conditional_edges(
         "safety_check",
-        route_after_safety_lite,
+        route_handlers["route_after_safety"],
         {
             "escalate": "escalation_response",
             "continue": "chat_response",

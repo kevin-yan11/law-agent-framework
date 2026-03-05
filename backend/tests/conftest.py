@@ -11,6 +11,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
+# Ensure required config vars exist during test collection/import.
+# Individual tests can still override these as needed.
+os.environ.setdefault("SUPABASE_URL", "http://localhost:54321")
+os.environ.setdefault("SUPABASE_KEY", "test-supabase-key")
+os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+
 
 @pytest.fixture
 def sample_query():

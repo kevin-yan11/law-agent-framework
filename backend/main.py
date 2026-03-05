@@ -15,6 +15,7 @@ from app.utils.document_parser import parse_document
 from app.config import logger, CORS_ORIGINS
 from app.auth import get_current_user, get_optional_user
 from app.db import supabase
+from legal_agent_framework import FrameworkRunRequest, FrameworkRunResponse, run_framework_turn
 
 # Security: File upload size limit (10MB)
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
@@ -194,6 +195,28 @@ async def upload_file(
     except Exception as e:
         logger.error(f"File upload failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to parse file")
+
+
+@app.post("/framework/run", response_model=FrameworkRunResponse)
+@limiter.limit("30/minute")
+async def framework_run(
+    request: Request,
+    payload: FrameworkRunRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Transport-neutral framework entrypoint.
+
+    Accepts generic `messages` + `request_context` payloads and runs the same
+    conversational graph used by CopilotKit integration.
+    """
+    try:
+        return await run_framework_turn(payload, graph=graph)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Framework run failed: {e}")
+        raise HTTPException(status_code=500, detail="Framework run failed")
 
 
 if __name__ == "__main__":

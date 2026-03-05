@@ -84,6 +84,74 @@ An Australian Legal Assistant MVP that provides legal information, lawyer matchi
 
 6. Open http://localhost:3000
 
+Docker backend build note:
+```bash
+# Build from repo root so local framework package is included
+docker build -f backend/Dockerfile .
+```
+
+## Transport-Neutral Framework Runner
+
+In addition to the CopilotKit path, the backend now exposes a stack-agnostic
+framework endpoint and a local reference client.
+
+Framework extraction status:
+- Standalone package source now lives at `packages/legal-agent-framework/src/legal_agent_framework`.
+- Backend now imports `legal_agent_framework` directly.
+- Backend dependency includes local editable package path:
+  - `-e ../packages/legal-agent-framework` (in `backend/requirements.txt`)
+- Optional explicit install for external consumers:
+  - `pip install -e packages/legal-agent-framework`
+
+- API endpoint: `POST /framework/run`
+- Payload contract:
+  - `messages`: transport-neutral chat history (`role`, `content`)
+  - `request_context`: transport-neutral context (`user_state`, `ui_mode`, `legal_topic`, ...)
+  - `trace_id` (optional): continue an existing trace stream across turns
+  - `trace_events` (optional): prior events to replay/continue
+- Response includes:
+  - `trace_id`: active trace identifier for this run
+  - `trace_events`: ordered structured events emitted by wrapped stages
+- Auth: same bearer token auth as other protected backend routes
+- Optional provider selection (no code changes required):
+  - `LAW_FRAMEWORK_STAGE_PROVIDER=<registered_stage_provider_name>`
+  - `LAW_FRAMEWORK_TOOL_PROVIDER=<registered_tool_provider_name>`
+  - Built-in provider names:
+    - `auslaw_default` (current production app behavior)
+    - `demo_minimal` (deterministic demo provider)
+
+Example request:
+
+```bash
+curl -X POST http://localhost:8000/framework/run \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <supabase_access_token>" \
+  -d '{
+    "messages": [{"role":"user","content":"I got a parking fine, what can I do?"}],
+    "request_context": {"user_state":"NSW","ui_mode":"analysis","legal_topic":"parking_ticket"},
+    "trace_id": "session-trace-001"
+  }'
+```
+
+Local non-CopilotKit reference client:
+
+```bash
+cd backend
+python scripts/run_framework_local.py \
+  --message "I got a parking fine, what can I do?" \
+  --state NSW \
+  --mode analysis \
+  --topic parking_ticket
+```
+
+Run with demo provider (no LLM/tool backend dependencies):
+
+```bash
+export LAW_FRAMEWORK_STAGE_PROVIDER=demo_minimal
+export LAW_FRAMEWORK_TOOL_PROVIDER=demo_minimal
+python scripts/run_framework_local.py --message "What are my options?" --state NSW
+```
+
 ## Architecture
 
 ```

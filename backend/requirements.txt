@@ -1,3 +1,5 @@
+-e ../packages/legal-agent-framework
+
 fastapi>=0.115.0
 uvicorn>=0.31.1
 langchain-openai>=1.0.0

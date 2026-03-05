@@ -57,6 +57,16 @@ class ConversationalState(TypedDict):
     # ---- CopilotKit Integration ----
     copilotkit: Optional[dict]
 
+    # ---- Transport-Agnostic Context ----
+    # Preferred integration contract for reusable framework consumers.
+    request_context: Optional[dict]
+
+    # ---- Framework Trace Metadata ----
+    # Structured trace stream propagated by StageRuntimeWrapper.
+    framework_trace_id: Optional[str]
+    framework_trace_seq: Optional[int]
+    framework_trace_events: Optional[list[dict]]
+
     # ---- Error Handling ----
     error: Optional[str]
 
